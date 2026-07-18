@@ -134,5 +134,6 @@ export interface SanityCheckRun {
   currentStep: 'detect' | 'identify' | 'evidence' | 'infra' | 'dependencies' | 'changes' | 'historical' | 'hypothesis' | 'recommend' | 'review' | 'execution' | 'verification' | 'completed';
   agentDialogues: AgentDialogueMessage[];
   pullRequest?: PullRequest;
+  triggeredBy?: string;
 }
 

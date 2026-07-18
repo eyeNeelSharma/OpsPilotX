@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -43,88 +44,146 @@ function getGeminiClient(): GoogleGenAI {
 // In-Memory Database for demonstration, themed for Deutsche Bank RegOps
 let applications: ApplicationProfile[] = [
   {
-    id: "self-sanity",
-    name: "OpsPilot X Self-Diagnostics",
+    id: "mifid-rates",
+    name: "Mifid Rates",
     url: process.env.APP_URL || "http://127.0.0.1:3000",
-    description: "Internal diagnostic and self-health metrics for the OpsPilot X AI Agent platform, validating local sub-agent API routes.",
-    createdAt: new Date().toISOString(),
-    deploymentPlatform: "Cloud Run",
-    checkEndpoints: [
-      {
-        id: "self-api-apps",
-        path: "/api/applications",
-        method: "GET",
-        expectedStatus: 200,
-        description: "Verify backend applications metadata list endpoint is active."
-      },
-      {
-        id: "self-home",
-        path: "/",
-        method: "GET",
-        expectedStatus: 200,
-        description: "Check main application web interface is served."
-      }
-    ]
-  },
-  {
-    id: "gcp-cloud-demo",
-    name: "DB Regulatory Reporting (MiFID II)",
-    url: "http://127.0.0.1:3000", // Loops back to our simulation routes
-    description: "Deutsche Bank MiFID II transaction and reporting service deployed on GKE, bound to database storage and private VPC channels.",
+    description: "Deutsche Bank MiFID II Interest Rates and Bond trade reporting engine. Submits daily trades to ESMA and handles ACK/NACK responses.",
     createdAt: new Date().toISOString(),
     deploymentPlatform: "GKE",
     checkEndpoints: [
       {
-        id: "demo-health",
-        path: "/api/demo/gcp-app/health",
+        id: "rates-queue",
+        path: "/api/demo/regops/rates/queue",
         method: "GET",
         expectedStatus: 200,
-        description: "MiFID II service tier liveness/readiness check."
+        description: "Validate IBM MQ Queue 'MIFID.RATES.IN' depth and message consumer health."
       },
       {
-        id: "demo-sql",
-        path: "/api/demo/gcp-app/users",
+        id: "rates-db",
+        path: "/api/demo/regops/rates/db",
         method: "GET",
         expectedStatus: 200,
-        description: "Fetch transaction reports from Database. Simulates VPC serverless timeout."
-      },
-      {
-        id: "demo-billing",
-        path: "/api/demo/gcp-app/billing",
-        method: "GET",
-        expectedStatus: 200,
-        description: "Validate regulatory budget parameters. Simulates disabled Cloud Billing API."
-      },
-      {
-        id: "demo-storage",
-        path: "/api/demo/gcp-app/images",
-        method: "GET",
-        expectedStatus: 200,
-        description: "Retrieve archival client compliance PDFs. Simulates missing GCS Viewer permissions."
+        description: "Check Sybase Rates reporting database liveness and active connection counts."
       }
     ]
   },
   {
-    id: "httpbin-test",
-    name: "DB Transaction Egress Gateway",
-    url: "https://httpbin.org",
-    description: "Egress routing node verifying secure outbound regulatory messaging paths to ESMA and public validation channels.",
+    id: "mifid-credits",
+    name: "Mifid Credits",
+    url: process.env.APP_URL || "http://127.0.0.1:3000",
+    description: "MiFID II Credit Derivatives and Corporate Bond trade regulatory reporting processor. Processes CDS trade matching.",
+    createdAt: new Date().toISOString(),
+    deploymentPlatform: "GKE",
+    checkEndpoints: [
+      {
+        id: "credits-queue",
+        path: "/api/demo/regops/credits/queue",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Check inbound trade stream MQ queue depth."
+      },
+      {
+        id: "credits-db",
+        path: "/api/demo/regops/credits/db",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Verify Sybase database transaction locks and connection limits."
+      }
+    ]
+  },
+  {
+    id: "mifid-fx-cmd",
+    name: "Mifid FX and CMD",
+    url: process.env.APP_URL || "http://127.0.0.1:3000",
+    description: "Foreign Exchange (FX) and Commodities trade regulatory reporting gateway. Feeds central Trade Repositories.",
+    createdAt: new Date().toISOString(),
+    deploymentPlatform: "Cloud Run",
+    checkEndpoints: [
+      {
+        id: "fx-queue",
+        path: "/api/demo/regops/fx/queue",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Check active trade feed broker health."
+      },
+      {
+        id: "fx-ack",
+        path: "/api/demo/regops/fx/ack",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Verify ACK/NACK status code parsing thresholds."
+      }
+    ]
+  },
+  {
+    id: "mmsr",
+    name: "MMSR",
+    url: process.env.APP_URL || "http://127.0.0.1:3000",
+    description: "Money Market Statistical Reporting Engine. Prepares daily trade file submissions for secure transmission to the ECB (European Central Bank).",
+    createdAt: new Date().toISOString(),
+    deploymentPlatform: "Unknown",
+    checkEndpoints: [
+      {
+        id: "mmsr-queue",
+        path: "/api/demo/regops/mmsr/queue",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Check secure connection parameters to ECB SFTP gateway 'sftp.ecb.europa.eu'."
+      },
+      {
+        id: "mmsr-db",
+        path: "/api/demo/regops/mmsr/db",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Verify daily money market ledger transaction log database connection."
+      }
+    ]
+  },
+  {
+    id: "dbtrace",
+    name: "DBTrace",
+    url: process.env.APP_URL || "http://127.0.0.1:3000",
+    description: "Transaction Traceability Log Server. Indexes matching transaction IDs, payloads, and compliance ACK/NACK histories.",
     createdAt: new Date().toISOString(),
     deploymentPlatform: "Compute Engine",
     checkEndpoints: [
       {
-        id: "httpbin-status",
-        path: "/status/200",
+        id: "dbtrace-indexer",
+        path: "/api/demo/regops/dbtrace/indexer",
         method: "GET",
         expectedStatus: 200,
-        description: "Check basic internet routing egress paths."
+        description: "Validate trade trace log collection index backlog size."
       },
       {
-        id: "httpbin-delay",
-        path: "/delay/1",
+        id: "dbtrace-store",
+        path: "/api/demo/regops/dbtrace/store",
         method: "GET",
         expectedStatus: 200,
-        description: "Measure outbound channel delays and jitter profile."
+        description: "Verify archival logs compliance cluster elasticsearch storage status."
+      }
+    ]
+  },
+  {
+    id: "db-exman",
+    name: "DB Exman",
+    url: process.env.APP_URL || "http://127.0.0.1:3000",
+    description: "Regulatory Exceptions Management Workflow Dashboard. Coordinates compliance officer override actions on trade reporting failures.",
+    createdAt: new Date().toISOString(),
+    deploymentPlatform: "GKE",
+    checkEndpoints: [
+      {
+        id: "exman-db",
+        path: "/api/demo/regops/exman/db",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Check central Exception Store JVM memory metrics and database connectivity."
+      },
+      {
+        id: "exman-ui",
+        path: "/api/demo/regops/exman/ui",
+        method: "GET",
+        expectedStatus: 200,
+        description: "Check administrative API gateway routing health."
       }
     ]
   }
@@ -134,81 +193,646 @@ let applications: ApplicationProfile[] = [
 let geneosAlerts = [
   {
     id: "alert_001",
-    systemName: "db-regulatory-reporting-prod",
+    systemName: "mifid-rates-reporting-engine",
     severity: "CRITICAL",
-    ruleName: "VPC_CONNECTOR_TIMEOUT",
-    parameter: "Database Connect",
-    value: "TIMEOUT (10000ms)",
+    ruleName: "MQ_QUEUE_DEPTH_LIMIT",
+    parameter: "MIFID.RATES.IN depth",
+    value: "78,401 msgs (Limit: 50,000)",
     timestamp: new Date().toISOString(),
     status: "ACTIVE",
-    associatedAppId: "gcp-cloud-demo"
+    associatedAppId: "mifid-rates"
   },
   {
     id: "alert_002",
-    systemName: "reg-billing-calculator",
+    systemName: "mifid-credits-db-cluster",
     severity: "CRITICAL",
-    ruleName: "BILLING_BUDGETS_API_DISABLED",
-    parameter: "GCP Ingress API",
-    value: "HTTP_403_FORBIDDEN",
+    ruleName: "SYBASE_DB_TX_LOCK",
+    parameter: "MIFID_CREDIT_TRADES lock duration",
+    value: "320s (Limit: 30s)",
     timestamp: new Date().toISOString(),
     status: "ACTIVE",
-    associatedAppId: "gcp-cloud-demo"
+    associatedAppId: "mifid-credits"
   },
   {
     id: "alert_003",
-    systemName: "client-regulatory-archive",
-    severity: "WARNING",
-    ruleName: "GCS_BUCKET_IAM_MISSING",
-    parameter: "Cloud Storage Bucket",
-    value: "403_ACCESS_DENIED",
+    systemName: "mifid-fx-router",
+    severity: "CRITICAL",
+    ruleName: "ESMA_NACK_SPIKE",
+    parameter: "NACK rate (ERR-VAL-509)",
+    value: "12.4% (Limit: 1.0%)",
     timestamp: new Date().toISOString(),
     status: "ACTIVE",
-    associatedAppId: "gcp-cloud-demo"
+    associatedAppId: "mifid-fx-cmd"
   },
   {
     id: "alert_004",
-    systemName: "http-egress-gateway",
+    systemName: "ecb-mmsr-egress",
     severity: "WARNING",
-    ruleName: "LATENCY_THRESHOLD_BREACHED",
-    parameter: "Egress Response Delay",
-    value: "1025ms",
+    ruleName: "ECB_GATEWAY_TIMEOUT",
+    parameter: "sftp.ecb.europa.eu liveness",
+    value: "TIMEOUT",
     timestamp: new Date().toISOString(),
     status: "ACTIVE",
-    associatedAppId: "httpbin-test"
+    associatedAppId: "mmsr"
+  },
+  {
+    id: "alert_005",
+    systemName: "dbtrace-indexer-service",
+    severity: "WARNING",
+    ruleName: "INDEXER_LAG_DETECTED",
+    parameter: "Log Index Lag",
+    value: "15,200 records behind",
+    timestamp: new Date().toISOString(),
+    status: "ACTIVE",
+    associatedAppId: "dbtrace"
+  },
+  {
+    id: "alert_006",
+    systemName: "db-exman-portal-api",
+    severity: "CRITICAL",
+    ruleName: "EXMAN_DB_OUT_OF_MEMORY",
+    parameter: "JVM Heap Utilization",
+    value: "98.7% Heap Occupied",
+    timestamp: new Date().toISOString(),
+    status: "ACTIVE",
+    associatedAppId: "db-exman"
   }
 ];
 
 let checkHistory: SanityCheckRun[] = [];
 
+// ==================== REGOPS PERSISTENT DATABASE / MCP MIDDLEWARE ====================
+const MCP_DB_PATH = path.join(process.cwd(), "db_mcp_resources.json");
 
-// ==================== GCP SIMULATION ROUTE ENDPOINTS ====================
-// These endpoints allow the autonomous agent to test real URLs that return realistic cloud-native error patterns,
-// which the LLM agent then diagnoses in-depth.
+function loadMcpDb() {
+  try {
+    if (fs.existsSync(MCP_DB_PATH)) {
+      const data = fs.readFileSync(MCP_DB_PATH, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error reading MCP database:", err);
+  }
+  // Default structure fallback
+  return {
+    queues: {
+      "MIFID.RATES.IN": {
+        name: "MIFID.RATES.IN",
+        depth: 78401,
+        threshold: 50000,
+        status: "STUCK",
+        socketState: "STALE",
+        socketId: "rates-tx-prod-918",
+        description: "IBM MQ transmission buffer queue for outbound MiFID II rates trade messages."
+      }
+    },
+    locks: {
+      "MIFID_CREDIT_TRADES": {
+        tableName: "MIFID_CREDIT_TRADES",
+        lockType: "EXCLUSIVE",
+        durationSeconds: 320,
+        blockingSpid: 892,
+        blockedTradesCount: 1402,
+        query: "SELECT * FROM MIFID_CREDIT_TRADES HOLDLOCK WHERE trade_status = 'PENDING'",
+        status: "BLOCKED"
+      }
+    },
+    validation: {
+      "esma_regulatory": {
+        system: "upstream-trade-capture-engine",
+        version: "v14.2",
+        nackRate: "12.4%",
+        bugActive: true,
+        mostCommonError: "ERR-VAL-509: Missing or Invalid CFI Code on commodity swap trades.",
+        description: "Compliance validation rejected. ESMA Trade Repository feedback engine."
+      }
+    },
+    sftp: {
+      "ecb_gateway": {
+        host: "sftp.ecb.europa.eu",
+        status: "TIMEOUT",
+        routeIp: "192.168.42.11",
+        gatewayDns: "unresolved",
+        vlanId: 124,
+        description: "European Central Bank Money Market Statistical Reporting secure transmission node."
+      }
+    },
+    jvm: {
+      "exman_db": {
+        serviceId: "db-exman",
+        heapUsagePercent: 98.7,
+        maxMemoryMB: 4096,
+        garbageCollectionTimePercent: 94.1,
+        status: "OUT_OF_MEMORY",
+        description: "Exception Store database driver JVM container resource limits."
+      }
+    },
+    mcp_logs: []
+  };
+}
 
-app.get("/api/demo/gcp-app/health", (req, res) => {
-  res.status(200).json({ status: "healthy", tier: "web", timestamp: new Date().toISOString() });
+function saveMcpDb(db: any) {
+  try {
+    fs.writeFileSync(MCP_DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Error writing MCP database:", err);
+  }
+}
+
+function addMcpLog(method: string, request: any, response: any) {
+  const db = loadMcpDb();
+  db.mcp_logs = db.mcp_logs || [];
+  db.mcp_logs.unshift({
+    id: `mcp-tx-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    timestamp: new Date().toISOString(),
+    method,
+    request,
+    response
+  });
+  // Keep only last 150 transaction logs
+  if (db.mcp_logs.length > 150) {
+    db.mcp_logs = db.mcp_logs.slice(0, 150);
+  }
+  saveMcpDb(db);
+}
+
+// ==================== MODEL CONTEXT PROTOCOL (MCP) PROTOCOL SERVER ENDPOINT ====================
+// Implements 100% real JSON-RPC 2.0 based protocol for listing and calling tools/resources
+
+app.get("/api/mcp/logs", (req, res) => {
+  const db = loadMcpDb();
+  res.json(db.mcp_logs || []);
 });
 
-app.get("/api/demo/gcp-app/users", (req, res) => {
-  res.status(503).send(
-    "Error 503 (Service Unavailable): Failed to connect to Cloud SQL database server 'my-production-project:us-central1:db-primary' on IP 10.32.0.4. " +
-    "Detail: Connection timed out after 10000ms. Check Serverless VPC Access Connector configuration or service account 'cloud-sql-sa@my-production-project.iam.gserviceaccount.com' roles."
-  );
+app.post("/api/mcp/reset-logs", (req, res) => {
+  const db = loadMcpDb();
+  db.mcp_logs = [];
+  saveMcpDb(db);
+  res.json({ success: true });
 });
 
-app.get("/api/demo/gcp-app/billing", (req, res) => {
-  res.status(403).send(
-    "Error 403 (Forbidden): GCP Service API billingbudgets.googleapis.com is not enabled. " +
-    "The budget calculation engine requires 'billing.budgets.get' privileges. " +
-    "Please enable the Billing Budgets API on the project or bind roles/billing.admin to developer-service-account@my-production-project.iam.gserviceaccount.com."
-  );
+app.post("/api/mcp", (req, res) => {
+  const { jsonrpc, method, params, id } = req.body;
+
+  if (jsonrpc !== "2.0") {
+    res.status(400).json({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Invalid Request: Only JSON-RPC 2.0 is supported." },
+      id: id || null
+    });
+    return;
+  }
+
+  const db = loadMcpDb();
+
+  if (method === "tools/list") {
+    const responseData = {
+      tools: [
+        {
+          name: "inspect_ibm_mq_queue",
+          description: "Inspect depth, threshold rules, and socket connection states for a target IBM MQ queue.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              queueName: { type: "string", description: "Name of the target IBM MQ queue (e.g. MIFID.RATES.IN)" }
+            },
+            required: ["queueName"]
+          }
+        },
+        {
+          name: "query_sybase_locks",
+          description: "Check active Sybase database exclusive transaction table locks and blocking SPID threads.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              tableName: { type: "string", description: "Name of the database reporting table to audit (e.g. MIFID_CREDIT_TRADES)" }
+            },
+            required: ["tableName"]
+          }
+        },
+        {
+          name: "fetch_sftp_routes",
+          description: "Perform diagnostic trace and secure gateway routes lookup to the European Central Bank SFTP server.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              gatewayHost: { type: "string", description: "Target gateway host (e.g. sftp.ecb.europa.eu)" }
+            },
+            required: ["gatewayHost"]
+          }
+        },
+        {
+          name: "fetch_compliance_metrics",
+          description: "Fetch live regulatory feedback NACK rates, upstream capture versions, and validation exceptions.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              system: { type: "string", description: "The upstream reporting system code (e.g. upstream-trade-capture-engine)" }
+            },
+            required: ["system"]
+          }
+        },
+        {
+          name: "inspect_jvm_heap",
+          description: "Inspect target container driver JVM Heap metrics and garbage collection latency states.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              serviceId: { type: "string", description: "Exception Store container service ID (e.g. db-exman)" }
+            },
+            required: ["serviceId"]
+          }
+        },
+        {
+          name: "reset_regulatory_socket",
+          description: "Reset stale TCP socket handles for the transmission daemon to restart the MQ consumer loop.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              queueName: { type: "string" },
+              socketId: { type: "string" }
+            },
+            required: ["queueName", "socketId"]
+          }
+        },
+        {
+          name: "kill_blocking_spid",
+          description: "Execute high-privilege KILL statement on blocking SPID to release active Sybase exclusive table locks.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              spid: { type: "number" }
+            },
+            required: ["spid"]
+          }
+        },
+        {
+          name: "redeploy_upstream_release",
+          description: "Trigger automated rollback of upstream trade-capture engine to standard compliant version.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              systemName: { type: "string" },
+              targetVersion: { type: "string" }
+            },
+            required: ["systemName", "targetVersion"]
+          }
+        },
+        {
+          name: "fix_sftp_dns_routes",
+          description: "Rebuild static route tables and bind secure DNS on K8s VLAN 124 gateway to resolve ECB gateway timeouts.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              gatewayHost: { type: "string" },
+              vlanId: { type: "number" }
+            },
+            required: ["gatewayHost", "vlanId"]
+          }
+        },
+        {
+          name: "restart_jvm_container",
+          description: "Restart memory-leaking container driver pools to clear JVM Heap OutOfMemory states.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              serviceId: { type: "string" }
+            },
+            required: ["serviceId"]
+          }
+        }
+      ]
+    };
+    addMcpLog("tools/list", params || {}, responseData);
+    res.json({ jsonrpc: "2.0", result: responseData, id });
+    return;
+  }
+
+  if (method === "resources/list") {
+    const responseData = {
+      resources: [
+        {
+          uri: "mcp://mifid-rates/ibm-mq-logs",
+          name: "IBM MQ rates-tx-prod daemon connection logs",
+          mimeType: "text/plain",
+          description: "Internal socket buffer and handshake traces of the Rates outbound queues."
+        },
+        {
+          uri: "mcp://mifid-credit/sybase-active-spids",
+          name: "Sybase DB locks and thread tables",
+          mimeType: "application/json",
+          description: "Full active thread, lock, and SPID records for credit risk schemas."
+        },
+        {
+          uri: "mcp://mmsr/ecb-sftp-vlan",
+          name: "MMSR ECB gateway VLAN secure routes",
+          mimeType: "text/plain",
+          description: "Network firewall static routes and DNS records of VLAN 124."
+        },
+        {
+          uri: "mcp://compliance/esma-feedbacks",
+          name: "ESMA feedback validation logs",
+          mimeType: "application/json",
+          description: "Feedbacks containing validation error codes and repository responses."
+        }
+      ]
+    };
+    addMcpLog("resources/list", params || {}, responseData);
+    res.json({ jsonrpc: "2.0", result: responseData, id });
+    return;
+  }
+
+  if (method === "resources/read") {
+    const { uri } = params || {};
+    let contentText = "";
+
+    if (uri === "mcp://mifid-rates/ibm-mq-logs") {
+      const q = db.queues["MIFID.RATES.IN"];
+      if (q.status === "STUCK") {
+        contentText = `[INFO] rates-tx-prod-918: Opening MQ queue MIFID.RATES.IN...
+[WARN] rates-tx-prod-918: TCP socket handshake delayed from peer node (192.168.12.91).
+[ERROR] rates-tx-prod-918: Socket closed by peer. Connection pool exhausted.
+[FATAL] rates-tx-prod-918: Stale TCP socket handle detected for transmission daemon. Halting consumer transmission loop. Queue depth rising! (Current Depth: ${q.depth})`;
+      } else {
+        contentText = `[INFO] rates-tx-prod-918: Opening MQ queue MIFID.RATES.IN...
+[INFO] rates-tx-prod-918: TCP socket handshake established successfully.
+[INFO] rates-tx-prod-918: Transmitted 504 messages. Queue consumer running healthy. (Current Depth: ${q.depth})`;
+      }
+    } else if (uri === "mcp://mifid-credit/sybase-active-spids") {
+      contentText = JSON.stringify(db.locks, null, 2);
+    } else if (uri === "mcp://mmsr/ecb-sftp-vlan") {
+      const s = db.sftp["ecb_gateway"];
+      if (s.status === "TIMEOUT") {
+        contentText = `Destination: ${s.host}
+Route IP: ${s.routeIp}
+Secure VLAN ID: ${s.vlanId}
+DNS Resolution: ${s.gatewayDns.toUpperCase()} (ERROR: Host sftp.ecb.europa.eu could not be resolved)
+Ping Latency: 100% Packet Loss (Connection Timed Out)`;
+      } else {
+        contentText = `Destination: ${s.host}
+Route IP: ${s.routeIp}
+Secure VLAN ID: ${s.vlanId}
+DNS Resolution: RESOLVED
+Ping Latency: 22ms (0% Packet Loss - Connection Healthy)`;
+      }
+    } else if (uri === "mcp://compliance/esma-feedbacks") {
+      contentText = JSON.stringify(db.validation, null, 2);
+    } else {
+      res.status(404).json({
+        jsonrpc: "2.0",
+        error: { code: -32602, message: `Resource not found with URI: ${uri}` },
+        id
+      });
+      return;
+    }
+
+    const responseData = {
+      content: [
+        {
+          uri,
+          mimeType: uri.endsWith("logs") || uri.endsWith("vlan") ? "text/plain" : "application/json",
+          text: contentText
+        }
+      ]
+    };
+    addMcpLog("resources/read", params || {}, responseData);
+    res.json({ jsonrpc: "2.0", result: responseData, id });
+    return;
+  }
+
+  if (method === "tools/call") {
+    const { name, arguments: args } = params || {};
+    let resultPayload: any = null;
+
+    if (name === "inspect_ibm_mq_queue") {
+      const q = db.queues["MIFID.RATES.IN"];
+      resultPayload = {
+        queueName: q.name,
+        depth: q.depth,
+        threshold: q.threshold,
+        status: q.status,
+        socketState: q.socketState,
+        socketId: q.socketId,
+        message: `IBM MQ queue ${q.name} is currently ${q.status}. Current depth is ${q.depth} against threshold ${q.threshold}. Socket state is ${q.socketState}.`
+      };
+    } else if (name === "query_sybase_locks") {
+      const l = db.locks["MIFID_CREDIT_TRADES"];
+      resultPayload = {
+        tableName: l.tableName,
+        lockType: l.lockType,
+        durationSeconds: l.durationSeconds,
+        blockingSpid: l.blockingSpid,
+        blockedTradesCount: l.blockedTradesCount,
+        query: l.query,
+        status: l.status,
+        message: l.status === "BLOCKED" 
+          ? `Exclusive exclusive block detected on table MIFID_CREDIT_TRADES. Blocking SPID is ${l.blockingSpid} holding lock for ${l.durationSeconds}s. ${l.blockedTradesCount} transactions pending.` 
+          : "Sybase DB is healthy. No blocking active transaction locks detected."
+      };
+    } else if (name === "fetch_sftp_routes") {
+      const s = db.sftp["ecb_gateway"];
+      resultPayload = {
+        host: s.host,
+        status: s.status,
+        routeIp: s.routeIp,
+        gatewayDns: s.gatewayDns,
+        vlanId: s.vlanId,
+        message: s.status === "TIMEOUT" 
+          ? `ECB secure SFTP gateway connection timed out. DNS resolution: ${s.gatewayDns.toUpperCase()}. Network route is inaccessible.` 
+          : "ECB secure SFTP gateway is connected and healthy."
+      };
+    } else if (name === "fetch_compliance_metrics") {
+      const v = db.validation["esma_regulatory"];
+      resultPayload = {
+        systemName: v.system,
+        version: v.version,
+        nackRate: v.nackRate,
+        bugActive: v.bugActive,
+        mostCommonError: v.mostCommonError,
+        message: v.bugActive 
+          ? `ESMA trade repository reporting NACK rate is ${v.nackRate} due to code bug in release ${v.version}. Rejections due to: ${v.mostCommonError}` 
+          : `ESMA reporting is healthy. Version ${v.version} active, NACK rate is ${v.nackRate}.`
+      };
+    } else if (name === "inspect_jvm_heap") {
+      const j = db.jvm["exman_db"];
+      resultPayload = {
+        serviceId: j.serviceId,
+        heapUsagePercent: j.heapUsagePercent,
+        maxMemoryMB: j.maxMemoryMB,
+        garbageCollectionTimePercent: j.garbageCollectionTimePercent,
+        status: j.status,
+        message: j.status === "OUT_OF_MEMORY" 
+          ? `JVM heap exhausted (${j.heapUsagePercent}%) for exception store database driver. Garbage collection cycle taking ${j.garbageCollectionTimePercent}% of CPU capacity.` 
+          : "Exception Store DB driver JVM container resources are running normally."
+      };
+    } else if (name === "reset_regulatory_socket") {
+      db.queues["MIFID.RATES.IN"].depth = 104;
+      db.queues["MIFID.RATES.IN"].status = "HEALTHY";
+      db.queues["MIFID.RATES.IN"].socketState = "CONNECTED";
+      saveMcpDb(db);
+      resultPayload = {
+        success: true,
+        message: "MCP executed RESET_REGULATORY_SOCKET successfully. Stale socket handles for transmission daemon reset. Queue MIFID.RATES.IN drained."
+      };
+    } else if (name === "kill_blocking_spid") {
+      db.locks["MIFID_CREDIT_TRADES"].status = "RELEASED";
+      db.locks["MIFID_CREDIT_TRADES"].blockedTradesCount = 0;
+      db.locks["MIFID_CREDIT_TRADES"].durationSeconds = 0;
+      db.locks["MIFID_CREDIT_TRADES"].blockingSpid = 0;
+      saveMcpDb(db);
+      resultPayload = {
+        success: true,
+        message: "MCP executed KILL_BLOCKING_SPID for SPID 892 successfully. Exclusive lock on table MIFID_CREDIT_TRADES released."
+      };
+    } else if (name === "redeploy_upstream_release") {
+      db.validation["esma_regulatory"].bugActive = false;
+      db.validation["esma_regulatory"].nackRate = "0.15%";
+      db.validation["esma_regulatory"].version = "v14.1";
+      saveMcpDb(db);
+      resultPayload = {
+        success: true,
+        message: "MCP executed REDEPLOY_UPSTREAM_RELEASE successfully. Reverted upstream engine to v14.1. Compliance validations restored."
+      };
+    } else if (name === "fix_sftp_dns_routes") {
+      db.sftp["ecb_gateway"].status = "CONNECTED";
+      db.sftp["ecb_gateway"].gatewayDns = "resolved";
+      saveMcpDb(db);
+      resultPayload = {
+        success: true,
+        message: "MCP executed FIX_SFTP_DNS_ROUTES successfully. Configured static route tables and resolved ECB secure DNS gateway."
+      };
+    } else if (name === "restart_jvm_container") {
+      db.jvm["exman_db"].heapUsagePercent = 38.4;
+      db.jvm["exman_db"].status = "RUNNING";
+      db.jvm["exman_db"].garbageCollectionTimePercent = 1.2;
+      saveMcpDb(db);
+      resultPayload = {
+        success: true,
+        message: "MCP executed RESTART_JVM_CONTAINER successfully. Exception Store JVM container restarted, clearing Heap OOM states."
+      };
+    } else {
+      res.status(404).json({
+        jsonrpc: "2.0",
+        error: { code: -32601, message: `Tool not found: ${name}` },
+        id
+      });
+      return;
+    }
+
+    const responseData = {
+      content: [
+        {
+          type: "text",
+          text: typeof resultPayload === "string" ? resultPayload : JSON.stringify(resultPayload)
+        }
+      ]
+    };
+    addMcpLog("tools/call", params || {}, responseData);
+    res.json({ jsonrpc: "2.0", result: responseData, id });
+    return;
+  }
+
+  res.status(404).json({
+    jsonrpc: "2.0",
+    error: { code: -32601, message: `Method not found: ${method}` },
+    id
+  });
 });
 
-app.get("/api/demo/gcp-app/images", (req, res) => {
-  res.status(404).send(
-    "Error 404 (Not Found): Bucket 'gcp-app-production-assets-91823' does not exist in project 'my-production-project', or the service identity lacks object read access. " +
-    "AccessDenied: roles/storage.objectViewer IAM permission is missing for public or service-agent principal."
-  );
+// ==================== REGOPS SIMULATION ROUTE ENDPOINTS ====================
+// Dynamically connected to the persistent MCP resources database cluster
+
+app.get("/api/demo/regops/rates/queue", (req, res) => {
+  const db = loadMcpDb();
+  const q = db.queues["MIFID.RATES.IN"];
+  if (q.status === "STUCK") {
+    res.status(503).send(
+      `Error 503 (Service Unavailable): IBM MQ Queue 'MIFID.RATES.IN' depth exceeded critical threshold of 50,000 (Current: ${q.depth} msgs). ` +
+      `Detail: Transmission daemon '${q.socketId}' has stale TCP socket handles. Restarting the pod or resetting the MQ connection pool is required.`
+    );
+  } else {
+    res.status(200).json({ status: "healthy", depth: q.depth, threshold: q.threshold, socketState: q.socketState });
+  }
+});
+
+app.get("/api/demo/regops/rates/db", (req, res) => {
+  res.status(200).json({ status: "healthy", activeConnections: 142, maxPoolSize: 500 });
+});
+
+app.get("/api/demo/regops/credits/queue", (req, res) => {
+  res.status(200).json({ status: "healthy", backlogSize: 104, timestamp: new Date().toISOString() });
+});
+
+app.get("/api/demo/regops/credits/db", (req, res) => {
+  const db = loadMcpDb();
+  const l = db.locks["MIFID_CREDIT_TRADES"];
+  if (l.status === "BLOCKED") {
+    res.status(500).send(
+      `Error 500 (Internal Server Error): Sybase Database exclusive transaction table lock detected on 'MIFID_CREDIT_TRADES' by SPID ${l.blockingSpid}. ` +
+      `Lock held duration: ${l.durationSeconds} seconds (Limit: 30s). Blocked transactions: ${l.blockedTradesCount} trades pending. Root Cause: Long-running uncommitted manual reconciliation batch.`
+    );
+  } else {
+    res.status(200).json({ status: "healthy", message: "No active database locks detected." });
+  }
+});
+
+app.get("/api/demo/regops/fx/queue", (req, res) => {
+  res.status(200).json({ status: "healthy", queueStatus: "active", latencyMs: 12 });
+});
+
+app.get("/api/demo/regops/fx/ack", (req, res) => {
+  const db = loadMcpDb();
+  const v = db.validation["esma_regulatory"];
+  if (v.bugActive) {
+    res.status(422).send(
+      `Error 422 (Unprocessable Entity): Compliance validation rejected. ESMA Trade Repository NACK rate is ${v.nackRate} (Threshold: <1.0%). ` +
+      `Most common rejection code: '${v.mostCommonError}' Root Cause: Upstream trade-capture engine bug in release ${v.version}.`
+    );
+  } else {
+    res.status(200).json({ status: "healthy", version: v.version, nackRate: v.nackRate });
+  }
+});
+
+app.get("/api/demo/regops/mmsr/queue", (req, res) => {
+  const db = loadMcpDb();
+  const s = db.sftp["ecb_gateway"];
+  if (s.status === "TIMEOUT") {
+    res.status(504).send(
+      `Error 504 (Gateway Timeout): Connection to ECB (European Central Bank) SFTP regulatory gateway '${s.host}' timed out after 30,000ms. ` +
+      `Transmission daemon is active but unable to resolve routes. Please check the network route, proxy configuration, or firewall rules on secure VLAN ${s.vlanId}.`
+    );
+  } else {
+    res.status(200).json({ status: "healthy", message: "Successfully connected to ECB secure sftp gateway over VLAN." });
+  }
+});
+
+app.get("/api/demo/regops/mmsr/db", (req, res) => {
+  res.status(200).json({ status: "healthy", partitionName: "PART_2026_07", readDelayMs: 4 });
+});
+
+app.get("/api/demo/regops/dbtrace/indexer", (req, res) => {
+  res.status(200).json({ status: "warning", indexLag: 15200, isIndexing: true });
+});
+
+app.get("/api/demo/regops/dbtrace/store", (req, res) => {
+  res.status(200).json({ status: "healthy", elasticHealth: "green", docCount: 48912401 });
+});
+
+app.get("/api/demo/regops/exman/db", (req, res) => {
+  const db = loadMcpDb();
+  const j = db.jvm["exman_db"];
+  if (j.status === "OUT_OF_MEMORY") {
+    res.status(503).send(
+      `Error 503 (Service Unavailable): Exception Store DB connection driver failed with JVM Heap OutOfMemoryError. ` +
+      `Heap utilization: ${j.heapUsagePercent}% (Max: ${j.maxMemoryMB}MB). Active garbage collection taking ${j.garbageCollectionTimePercent}% of CPU capacity. Portal UI is currently unresponsive.`
+    );
+  } else {
+    res.status(200).json({ status: "healthy", heapUsagePercent: j.heapUsagePercent, containerState: j.status });
+  }
+});
+
+app.get("/api/demo/regops/exman/ui", (req, res) => {
+  res.status(200).json({ status: "healthy", activeUsers: 14 });
 });
 
 
@@ -287,6 +911,19 @@ app.delete("/api/sanity-checks/history/:id", (req, res) => {
   res.json({ success: true });
 });
 
+app.post("/api/sanity-checks/history/:id/update-results", (req, res) => {
+  const { id } = req.params;
+  const { logs, agentDialogues } = req.body;
+  const run = checkHistory.find(r => r.id === id);
+  if (run) {
+    run.logs = logs || [];
+    run.agentDialogues = agentDialogues || [];
+    res.json({ success: true, run });
+  } else {
+    res.status(404).json({ error: "Run not found." });
+  }
+});
+
 
 // ==================== GENEOS ALERTS API ====================
 
@@ -308,10 +945,76 @@ app.post("/api/geneos/alerts/:id/status", (req, res) => {
 
 
 // ==================== REMEDIATION EXECUTION API ====================
+// Triggers actual Model Context Protocol (MCP) JSON-RPC tool calls based on the remediation action requested
 
 app.post("/api/remediations/execute", (req, res) => {
   const { command, service, title, alertId, runId } = req.body;
   
+  // Load database to trigger proper tool execution
+  const db = loadMcpDb();
+  let mcpToolName = "unknown";
+  let mcpParams: any = {};
+  let executionResultMessage = "";
+
+  // Map requested SRE/RegOps remediation commands to real-time MCP Tools
+  const lowerCmd = (command || "").toLowerCase();
+  const lowerTitle = (title || "").toLowerCase();
+
+  if (lowerCmd.includes("rates-tx-prod-918") || lowerTitle.includes("socket") || lowerCmd.includes("reset_socket")) {
+    mcpToolName = "reset_regulatory_socket";
+    mcpParams = { queueName: "MIFID.RATES.IN", socketId: "rates-tx-prod-918" };
+    
+    db.queues["MIFID.RATES.IN"].depth = 104;
+    db.queues["MIFID.RATES.IN"].status = "HEALTHY";
+    db.queues["MIFID.RATES.IN"].socketState = "CONNECTED";
+    executionResultMessage = "MCP RESET_REGULATORY_SOCKET executed. Stale socket handles reset. Outbound MiFID II rates queue drained to 104 msgs.";
+  } else if (lowerCmd.includes("spid") || lowerCmd.includes("kill") || lowerTitle.includes("lock")) {
+    mcpToolName = "kill_blocking_spid";
+    mcpParams = { spid: 892 };
+    
+    db.locks["MIFID_CREDIT_TRADES"].status = "RELEASED";
+    db.locks["MIFID_CREDIT_TRADES"].blockedTradesCount = 0;
+    db.locks["MIFID_CREDIT_TRADES"].durationSeconds = 0;
+    db.locks["MIFID_CREDIT_TRADES"].blockingSpid = 0;
+    executionResultMessage = "MCP KILL_BLOCKING_SPID executed. SPID 892 terminated. Exclusive table locks on Sybase released, 1,402 credit records flushed.";
+  } else if (lowerCmd.includes("revert") || lowerCmd.includes("deploy") || lowerCmd.includes("v14.1") || lowerTitle.includes("rollback")) {
+    mcpToolName = "redeploy_upstream_release";
+    mcpParams = { systemName: "upstream-trade-capture-engine", targetVersion: "v14.1" };
+    
+    db.validation["esma_regulatory"].bugActive = false;
+    db.validation["esma_regulatory"].nackRate = "0.15%";
+    db.validation["esma_regulatory"].version = "v14.1";
+    executionResultMessage = "MCP REDEPLOY_UPSTREAM_RELEASE executed. Reverted trade engine to v14.1. ESMA repository validation rejections resolved.";
+  } else if (lowerCmd.includes("sftp") || lowerCmd.includes("vlan") || lowerCmd.includes("dns") || lowerTitle.includes("route")) {
+    mcpToolName = "fix_sftp_dns_routes";
+    mcpParams = { gatewayHost: "sftp.ecb.europa.eu", vlanId: 124 };
+    
+    db.sftp["ecb_gateway"].status = "CONNECTED";
+    db.sftp["ecb_gateway"].gatewayDns = "resolved";
+    executionResultMessage = "MCP FIX_SFTP_DNS_ROUTES executed. Static routes deployed for VLAN 124. DNS gateway resolved to sftp.ecb.europa.eu.";
+  } else if (lowerCmd.includes("exman") || lowerCmd.includes("heap") || lowerCmd.includes("restart") || lowerTitle.includes("memory")) {
+    mcpToolName = "restart_jvm_container";
+    mcpParams = { serviceId: "db-exman" };
+    
+    db.jvm["exman_db"].heapUsagePercent = 38.4;
+    db.jvm["exman_db"].status = "RUNNING";
+    db.jvm["exman_db"].garbageCollectionTimePercent = 1.2;
+    executionResultMessage = "MCP RESTART_JVM_CONTAINER executed. JVM Container db-exman recycled. Garbage collection normal, Heap usage cleared to 38%.";
+  }
+
+  // Save changes to persistent db
+  saveMcpDb(db);
+
+  // Add the official JSON-RPC transaction to our MCP Log trace DB
+  addMcpLog("tools/call", { name: mcpToolName, arguments: mcpParams }, {
+    jsonrpc: "2.0",
+    result: {
+      content: [
+        { type: "text", text: executionResultMessage || `Successfully executed command: ${command}` }
+      ]
+    }
+  });
+
   // Resolve the corresponding Geneos alert if alertId is provided
   if (alertId) {
     const alert = geneosAlerts.find(a => a.id === alertId);
@@ -327,16 +1030,17 @@ app.post("/api/remediations/execute", (req, res) => {
       run.overallStatus = "HEALTHY";
       run.overallHealthScore = 100;
       run.currentStep = "completed";
+      
       run.logs.push({
         timestamp: new Date().toISOString(),
         level: "success",
-        message: `[RegOps Exec] Executed command via MCP: "${command}" successfully. All target clusters reconciled.`,
+        message: `[RegOps Exec] Executed command via MCP Tool [${mcpToolName}]: "${command}" successfully. DB Cluster reconciled.`,
         step: "remediation"
       });
       run.logs.push({
         timestamp: new Date().toISOString(),
         level: "success",
-        message: `[RegOps Exec] Verification checks PASSED. System fully recovered.`,
+        message: `[RegOps Exec] Verification checks PASSED. ${executionResultMessage || "System fully recovered."}`,
         step: "verification"
       });
     }
@@ -344,24 +1048,14 @@ app.post("/api/remediations/execute", (req, res) => {
 
   res.json({ 
     success: true, 
-    message: `Action executed successfully: '${title}' on service '${service}'.`,
-    details: `Executed: ${command}`
+    message: executionResultMessage || `Action executed successfully: '${title}' on service '${service}'.`,
+    details: `Executed MCP Tool: ${mcpToolName} with parameters ${JSON.stringify(mcpParams)}`
   });
 });
 
 
-// ==================== PULL REQUEST STATUS API ====================
-app.get("/api/sanity-checks/history", (req, res) => {
-  res.json(checkHistory);
-});
-
-app.delete("/api/sanity-checks/history/:id", (req, res) => {
-  checkHistory = checkHistory.filter(r => r.id !== req.params.id);
-  res.json({ success: true });
-});
-
 app.post("/api/sanity-checks/run", async (req, res) => {
-  const { applicationId, geneosAlertId } = req.body;
+  const { applicationId, geneosAlertId, triggeredBy } = req.body;
   const targetApp = applications.find(a => a.id === applicationId);
 
   if (!targetApp) {
@@ -397,24 +1091,60 @@ app.post("/api/sanity-checks/run", async (req, res) => {
     geneosAlertId,
     currentStep: 'review',
     agentDialogues: [],
-    pullRequest: null
+    pullRequest: null,
+    triggeredBy: triggeredBy || "System Operator"
   };
 
-  // Mock results for now
-  const results = targetApp.checkEndpoints.map(e => ({
-    endpointId: e.id,
-    path: e.path,
-    method: e.method,
-    status: 500,
-    expectedStatus: e.expectedStatus,
-    statusMatch: false,
-    latencyMs: 150,
-    headers: {},
-    bodySnippet: "Internal Server Error",
-    healthState: 'CRITICAL'
-  }));
+  // Evaluate dynamic results matching our database, queue and regulator gateways
+  const results = targetApp.checkEndpoints.map(e => {
+    let status = 200;
+    let bodySnippet = "OK - Connected and processing trade transactions successfully.";
+    let healthState: 'HEALTHY' | 'DEGRADED' | 'CRITICAL' = 'HEALTHY';
 
+    // Simulate specific issues if matched with active Geneos alert
+    if (e.id === "rates-queue" && geneosAlertId === "alert_001") {
+      status = 503;
+      bodySnippet = "Error 503 (Service Unavailable): IBM MQ Queue 'MIFID.RATES.IN' depth exceeded critical threshold of 50,000 (Current: 78,401 msgs). Outbound regulatory transmission gateway 'rates-tx-prod-918' has stale TCP socket handles. Reset required.";
+      healthState = 'CRITICAL';
+    } else if (e.id === "credits-db" && geneosAlertId === "alert_002") {
+      status = 500;
+      bodySnippet = "Error 500 (Internal Server Error): Sybase Database exclusive transaction table lock detected on 'MIFID_CREDIT_TRADES' by SPID 892. Lock duration: 320 seconds. 1,402 credit trades pending persistence. Long-running manual batch blocking tables.";
+      healthState = 'CRITICAL';
+    } else if (e.id === "fx-ack" && geneosAlertId === "alert_003") {
+      status = 422;
+      bodySnippet = "Error 422 (Unprocessable Entity): Compliance validation rejected. ESMA Trade Repository NACK rate is 12.4% (Threshold: <1.0%). Code 'ERR-VAL-509: Missing or Invalid CFI Code' on commodity swap trades due to upstream capture engine release v14.2 bug.";
+      healthState = 'CRITICAL';
+    } else if (e.id === "mmsr-queue" && geneosAlertId === "alert_004") {
+      status = 504;
+      bodySnippet = "Error 504 (Gateway Timeout): Connection to ECB (European Central Bank) SFTP regulatory gateway 'sftp.ecb.europa.eu' timed out after 30,000ms. Transmission daemon active but unable to resolve ECB secure routes.";
+      healthState = 'DEGRADED';
+    } else if (e.id === "dbtrace-indexer" && geneosAlertId === "alert_005") {
+      status = 200;
+      bodySnippet = "Warning: Log indexer thread lagging by 15,200 records. Central trade compliance log storage is slow but operational.";
+      healthState = 'DEGRADED';
+    } else if (e.id === "exman-db" && geneosAlertId === "alert_006") {
+      status = 503;
+      bodySnippet = "Error 503 (Service Unavailable): Exception Store DB driver failed with JVM Heap OutOfMemoryError. Heap utilization: 98.7% (Max: 4096MB). Garbage Collection cycle taking 94.1% CPU capacity.";
+      healthState = 'CRITICAL';
+    }
+
+    return {
+      endpointId: e.id,
+      path: e.path,
+      method: e.method,
+      status,
+      expectedStatus: e.expectedStatus,
+      statusMatch: status === e.expectedStatus,
+      latencyMs: status === 200 ? Math.floor(10 + Math.random() * 40) : Math.floor(150 + Math.random() * 100),
+      headers: { "content-type": "application/json" },
+      bodySnippet,
+      healthState
+    };
+  });
+
+  const endpointsPassedCount = results.filter(r => r.statusMatch).length;
   newRun.results = results;
+  newRun.endpointsPassedCount = endpointsPassedCount;
 
   let realGithubCommits = null;
   if (targetApp.githubRepository) {
@@ -503,16 +1233,411 @@ Output valid JSON only.`;
     newRun.pullRequest = aiData.pullRequest ? { ...aiData.pullRequest, status: 'DRAFT', createdAt: new Date().toISOString() } : null;
 
   } catch (error) {
-    console.error("Gemini AI generation failed:", error);
-    // fallback static payload
-    newRun.overallHealthScore = 30;
-    newRun.issues = [{ id: "iss-1", title: "API Outage", severity: "high", endpoint: "/", description: "Timeout", possibleCause: "Unknown error" }];
-    newRun.remediations = [{ title: "Restart pod", service: "K8s", command: "kubectl rollout restart deployment", explanation: "Restart to clear error", riskClassification: "GREEN" }];
-    newRun.executiveSummary = "The application is experiencing a critical outage.";
-    newRun.pullRequest = null;
-    newRun.agentDialogues = [
-      { id: "msg-1", agentId: "alice", agentName: "Alice", avatar: "A", role: "SRE", content: "AI generation failed, fallback applied.", step: "investigate", timestamp: new Date().toISOString() }
-    ];
+    console.warn("Gemini AI generation failed (using high-fidelity state fallback):", error);
+    
+    // High-fidelity state fallbacks to make the app robust even if Gemini API quota is exhausted
+    if (geneosAlertId === "alert_001") {
+      newRun.overallHealthScore = 35;
+      newRun.overallStatus = "CRITICAL";
+      newRun.executiveSummary = "Outbound rates queue MIFID.RATES.IN depth is at 78,401 messages, exceeding the 50,000 threshold. The socket state of the outbound transmission gateway 'rates-tx-prod-918' is STALE due to un-acknowledged heartbeat frames. A regulatory socket reset via the MCP server is recommended to restore normal rates streaming.";
+      newRun.issues = [
+        {
+          id: "iss-rates-socket",
+          title: "IBM MQ 'MIFID.RATES.IN' Queue Depth Exceeded",
+          severity: "high",
+          endpoint: "/api/demo/regops/rates/queue",
+          description: "Outbound rate streaming queue has accumulated 78,401 messages. Connection socket 'rates-tx-prod-918' is unresponsive.",
+          possibleCause: "Stale TCP socket handles on the rates transmission service preventing message acknowledgement."
+        }
+      ];
+      newRun.remediations = [
+        {
+          title: "Reset Outbound Regulatory Socket",
+          service: "MIFID-RATES-GATEWAY",
+          command: "reset_socket rates-tx-prod-918 MIFID.RATES.IN",
+          explanation: "Forces immediate recycle of the TCP socket handles for rates-tx-prod-918 to clear stalled rate streaming loops.",
+          riskClassification: "GREEN"
+        }
+      ];
+      newRun.agentDialogues = [
+        {
+          id: "msg-1",
+          agentId: "alice",
+          agentName: "Alice (SRE Recon)",
+          avatar: "Alice",
+          role: "Site Reliability Engineer",
+          content: "Alert alert_001 detected. I've scanned the MIFID.RATES.IN queue metrics. The queue depth has backed up to 78,401 messages, and the connection state is shown as STALE. This indicates packet acknowledgements are blocked.",
+          step: "investigate",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-2",
+          agentId: "bob",
+          agentName: "Bob (Database)",
+          avatar: "Bob",
+          role: "Core DBA",
+          content: "No transactional locks are active on the database for this rates queue, so this is purely a network transport/socket failure. Sybase database is fully operational.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-3",
+          agentId: "charlie",
+          agentName: "Charlie (Code Arc)",
+          avatar: "Charlie",
+          role: "Tech Lead",
+          content: "I reviewed our recent deployment logs. The rates-gateway service was updated yesterday, but keep-alive timeouts weren't tuned correctly, causing socket leakage under high rate-update volatility.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-4",
+          agentId: "david",
+          agentName: "David (RegOps)",
+          avatar: "David",
+          role: "Compliance Officer",
+          content: "This backlog violates ESMA MiFID II RTS 25 time-accuracy requirements. We must clear the queue immediately. Alice, please initiate a Reset Outbound Regulatory Socket call via our MCP server. I am also drafting a patch to stabilize keep-alive intervals.",
+          step: "remediation",
+          timestamp: new Date().toISOString()
+        }
+      ];
+      newRun.pullRequest = {
+        id: "pr-rates-socket-timeout",
+        title: "Fix TCP keep-alive timeouts and socket leak in Rates Gateway",
+        description: "Resolves stale sockets under high traffic volatility by lowering default socket idle timeout and enabling tcpKeepAlive.",
+        repository: targetApp.githubRepository || "mifid-rates-gateway",
+        branch: "fix-rates-leak",
+        targetBranch: "main",
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        filesChanged: [
+          {
+            filename: "src/gateway/socket_manager.ts",
+            originalCode: "const socket = new net.Socket();\nsocket.setTimeout(0);\nsocket.connect(PORT, HOST);",
+            modifiedCode: "const socket = new net.Socket();\nsocket.setTimeout(30000);\nsocket.setKeepAlive(true, 5000);\nsocket.connect(PORT, HOST);",
+            additions: 2,
+            deletions: 1
+          }
+        ]
+      };
+    } else if (geneosAlertId === "alert_002") {
+      newRun.overallHealthScore = 20;
+      newRun.overallStatus = "CRITICAL";
+      newRun.executiveSummary = "Sybase transaction table lock detected on 'MIFID_CREDIT_TRADES' by SPID 892. Lock duration is 320 seconds, blocking 1,402 credit trades. Recommended action: Terminate SPID 892 via high-privilege MCP tool kill_blocking_spid.";
+      newRun.issues = [
+        {
+          id: "iss-sybase-lock",
+          title: "Sybase Exclusive Table Lock Detected",
+          severity: "high",
+          endpoint: "/api/demo/regops/credit/locks",
+          description: "Exclusive transaction lock on table 'MIFID_CREDIT_TRADES' has been held for over 5 minutes by system process SPID 892.",
+          "possibleCause": "An un-optimized manual batch execution script left an uncommitted transactional block open."
+        }
+      ];
+      newRun.remediations = [
+        {
+          title: "Terminate Blocking Database Session",
+          service: "SYBASE-CLUSTER-PRIMARY",
+          command: "kill_spid 892",
+          explanation: "Executes a kill command on SPID 892 to force rollback of the idle lock holder and release exclusive table reservations.",
+          riskClassification: "AMBER"
+        }
+      ];
+      newRun.agentDialogues = [
+        {
+          id: "msg-1",
+          agentId: "alice",
+          agentName: "Alice (SRE Recon)",
+          avatar: "Alice",
+          role: "Site Reliability Engineer",
+          content: "Scanning credit transactions... Yes, I see a full deadlock state. No rows are being inserted into the transactional ledger. A check on activelocks confirms table MIFID_CREDIT_TRADES has an exclusive lock.",
+          step: "investigate",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-2",
+          agentId: "bob",
+          agentName: "Bob (Database)",
+          avatar: "Bob",
+          role: "Core DBA",
+          content: "I ran diagnostics on the locking table. The lock is held by SPID 892, which corresponds to a manual batch backfill query launched 6 minutes ago. It's completely idle but has not closed its transaction.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-3",
+          agentId: "charlie",
+          agentName: "Charlie (Code Arc)",
+          avatar: "Charlie",
+          role: "Tech Lead",
+          content: "The batch code script does not use auto-commit or explicit transaction timeouts, leaving it vulnerable to network blips during bulk load operations.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-4",
+          agentId: "david",
+          agentName: "David (RegOps)",
+          avatar: "David",
+          role: "Compliance Officer",
+          content: "We have over 1,400 trade files backed up in memory. If we don't persist them within the next 10 minutes, we will exceed the regulatory compliance deadline for transaction reporting. Bob, please kill SPID 892 now.",
+          step: "remediation",
+          timestamp: new Date().toISOString()
+        }
+      ];
+      newRun.pullRequest = {
+        id: "pr-db-lock-timeout",
+        title: "Add strict session query timeouts and transactional commit guards",
+        description: "Enforces strict query timeout limits on the database connection pool to automatically rollback stale batch operations.",
+        repository: targetApp.githubRepository || "mifid-credit-db",
+        branch: "fix-db-lock-timeout",
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        filesChanged: [
+          {
+            filename: "src/database/pool.ts",
+            originalCode: "const pool = new ConnectionPool({\n  max: 10,\n  idleTimeoutMillis: 30000\n});",
+            modifiedCode: "const pool = new ConnectionPool({\n  max: 10,\n  idleTimeoutMillis: 30000,\n  connectionTimeoutMillis: 5000,\n  statementTimeoutMillis: 15000\n});",
+            additions: 2,
+            deletions: 0
+          }
+        ]
+      };
+    } else if (geneosAlertId === "alert_003") {
+      newRun.overallHealthScore = 15;
+      newRun.overallStatus = "CRITICAL";
+      newRun.executiveSummary = "Compliance validation rejection rate for ESMA Trade Repository is 12.4%, violating the <1.0% threshold. Root cause is a missing or invalid CFI code validation bug introduced in upstream capture engine v14.2. Recommended remediation: Redeploy Upstream Release v14.1 (Rollback).";
+      newRun.issues = [
+        {
+          id: "iss-esma-rejection",
+          title: "ESMA Repository Validation Failure (12.4% NACK Rate)",
+          severity: "high",
+          endpoint: "/api/demo/regops/compliance/validation",
+          description: "ESMA repository returns high NACK rates (ERR-VAL-509: Missing or Invalid CFI Code) for commodity swap trades.",
+          "possibleCause": "A schema validation bug in the newly deployed trade engine release v14.2."
+        }
+      ];
+      newRun.remediations = [
+        {
+          title: "Redeploy Stable Upstream Release v14.1",
+          service: "UPSTREAM-TRADE-CAPTURE",
+          command: "redeploy_v14_1 upstream-trade-capture-engine",
+          explanation: "Rolls back the upstream trade delivery engine to the last known stable version v14.1 to restore valid CFI schema compliance.",
+          riskClassification: "RED"
+        }
+      ];
+      newRun.agentDialogues = [
+        {
+          id: "msg-1",
+          agentId: "alice",
+          agentName: "Alice (SRE Recon)",
+          avatar: "Alice",
+          role: "Site Reliability Engineer",
+          content: "ESMA feedback logs retrieved. Validation rejections have spiked to 12.4%. Almost all rejections list ERROR ERR-VAL-509 for missing/invalid CFI code maps.",
+          step: "investigate",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-2",
+          agentId: "charlie",
+          agentName: "Charlie (Code Arc)",
+          avatar: "Charlie",
+          role: "Tech Lead",
+          content: "I tracked this to the v14.2 release deployed an hour ago. The parser structure changed, and the CFI code mapper was completely omitted for commodity derivative swap contracts.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-3",
+          agentId: "david",
+          agentName: "David (RegOps)",
+          avatar: "David",
+          role: "Compliance Officer",
+          content: "Sending NACKed trade reports is highly illegal under ESMA RTS rules. We must rollback immediately to v14.1 while Charlie maps the fix.",
+          step: "remediation",
+          timestamp: new Date().toISOString()
+        }
+      ];
+      newRun.pullRequest = {
+        id: "pr-esma-cfi-fix",
+        title: "Fix CFI Code default mappings for Commodity Swap compliance",
+        description: "Restores correct default ISO 10962 CFI code format ('SRXXXX') on commodity swap validation rules.",
+        repository: targetApp.githubRepository || "upstream-trade-capture-engine",
+        branch: "fix-cfi-compliance",
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        filesChanged: [
+          {
+            filename: "src/validation/cfi_rules.ts",
+            originalCode: "if (!trade.cfiCode) {\n  throw new ValidationError('CFI code is required');\n}",
+            modifiedCode: "if (!trade.cfiCode) {\n  trade.cfiCode = trade.type === 'COMMODITY_SWAP' ? 'SRCXXX' : 'XXXXXX';\n}",
+            additions: 3,
+            deletions: 2
+          }
+        ]
+      };
+    } else if (geneosAlertId === "alert_004") {
+      newRun.overallHealthScore = 55;
+      newRun.overallStatus = "DEGRADED";
+      newRun.executiveSummary = "ECB SFTP connection 'sftp.ecb.europa.eu' timed out. The transmission gateway is active but secure static routing tables on VLAN 124 are missing proper route entries. Injected static routing fixes via MCP are recommended.";
+      newRun.issues = [
+        {
+          id: "iss-ecb-sftp",
+          title: "ECB Gateway Timeout (504)",
+          severity: "medium",
+          endpoint: "/api/demo/regops/sftp/gateway",
+          description: "Secure file transfer gateway connection to 'sftp.ecb.europa.eu' is timing out on ports 22/990.",
+          "possibleCause": "VLAN 124 network configuration is missing static route descriptors to resolve the gateway DNS correctly."
+        }
+      ];
+      newRun.remediations = [
+        {
+          title: "Fix SFTP DNS Gateway Routes",
+          service: "SECURE-SFTP-GATEWAY",
+          command: "deploy_routes sftp.ecb.europa.eu 124",
+          explanation: "Injects correct static networking gateway parameters and DNS routes for ECB inside the secure VLAN 124 configuration.",
+          riskClassification: "GREEN"
+        }
+      ];
+      newRun.agentDialogues = [
+        {
+          id: "msg-1",
+          agentId: "alice",
+          agentName: "Alice (SRE Recon)",
+          avatar: "Alice",
+          role: "Site Reliability Engineer",
+          content: "The ECB transmission logs show connection timeout after 30 seconds. Handshakes are stalling at the TCP SYN stage, which points to a firewall or routing issue.",
+          step: "investigate",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-2",
+          agentId: "bob",
+          agentName: "Bob (Database)",
+          avatar: "Bob",
+          role: "Core DBA",
+          content: "SFTP server directory queries are not even reaching the destination, so this is definitely an isolated network routing block, not a filesystem or database issue.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-3",
+          agentId: "david",
+          agentName: "David (RegOps)",
+          avatar: "David",
+          role: "Compliance Officer",
+          content: "VLAN 124 was hardened yesterday. The static DNS entry resolving to sftp.ecb.europa.eu was cleared out from the routing table. Let's deploy route fixes through MCP tool to bind static maps.",
+          step: "remediation",
+          timestamp: new Date().toISOString()
+        }
+      ];
+      newRun.pullRequest = {
+        id: "pr-sftp-dns-routing",
+        title: "Update VLAN secure static routing and fallback DNS resolvers",
+        description: "Adds redundant SFTP gateway DNS endpoints to connection properties to avoid path resolution deadlocks.",
+        repository: targetApp.githubRepository || "sftp-regulatory-gateway",
+        branch: "fix-sftp-routing",
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        filesChanged: [
+          {
+            filename: "src/config/network.json",
+            originalCode: "{\n  \"gatewayHost\": \"sftp.ecb.europa.eu\",\n  \"connectionTimeout\": 10000\n}",
+            modifiedCode: "{\n  \"gatewayHost\": \"sftp.ecb.europa.eu\",\n  \"connectionTimeout\": 30000,\n  \"fallbackIp\": \"192.168.124.40\",\n  \"dnsResolvers\": [\"10.0.0.1\", \"1.1.1.1\"]\n}",
+            additions: 4,
+            deletions: 2
+          }
+        ]
+      };
+    } else if (geneosAlertId === "alert_006") {
+      newRun.overallHealthScore = 10;
+      newRun.overallStatus = "CRITICAL";
+      newRun.executiveSummary = "Exception Store DB driver has failed due to JVM Heap OutOfMemoryError (98.7% usage). Garbage collection cycles are consuming 94% of CPU, rendering the portal unresponsive. Recommended: Restart JVM Container db-exman via MCP.";
+      newRun.issues = [
+        {
+          id: "iss-jvm-oom",
+          title: "JVM Heap OutOfMemory in Exception Store DB",
+          severity: "high",
+          endpoint: "/api/demo/regops/jvm/heap",
+          description: "Exception Store DB service JVM Heap usage has reached 98.7%. Massive garbage collection pause loops are blocking incoming connections.",
+          "possibleCause": "Memory leak in the Exception Manager database driver under heavy peak loads."
+        }
+      ];
+      newRun.remediations = [
+        {
+          title: "Recycle JVM Container 'db-exman'",
+          service: "EXCEPTION-STORE-DB",
+          command: "restart_jvm db-exman",
+          explanation: "Forces a hard restart on the db-exman JVM container driver to release leaked memory allocations and restore normal GC percentiles.",
+          riskClassification: "AMBER"
+        }
+      ];
+      newRun.agentDialogues = [
+        {
+          id: "msg-1",
+          agentId: "alice",
+          agentName: "Alice (SRE Recon)",
+          avatar: "Alice",
+          role: "Site Reliability Engineer",
+          content: "The portal UI is completely locked. Reading the console output of db-exman reveals a continuous loop of OutOfMemoryError: Java heap space. SRE monitors show 98% heap usage.",
+          step: "investigate",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-2",
+          agentId: "charlie",
+          agentName: "Charlie (Code Arc)",
+          avatar: "Charlie",
+          role: "Tech Lead",
+          content: "Looking at the driver code, there's an infinite loop appending failed XML payloads into a static memory list cache instead of evicting them. This causes the heap exhaustion.",
+          step: "root_cause",
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: "msg-3",
+          agentId: "david",
+          agentName: "David (RegOps)",
+          avatar: "David",
+          role: "Compliance Officer",
+          content: "We must recycle the container immediately to clear memory. I will prepare a PR to tune the JVM garbage collector limits and fix the unbounded list.",
+          step: "remediation",
+          timestamp: new Date().toISOString()
+        }
+      ];
+      newRun.pullRequest = {
+        id: "pr-jvm-heap-tune",
+        title: "Optimize JVM Garbage Collection parameters and heap limits",
+        description: "Configures G1GC collector and sets explicit max heap ceiling limits (-Xmx4g) to prevent heap-exhaustion freezes.",
+        repository: targetApp.githubRepository || "db-exception-manager",
+        branch: "perf-jvm-tuning",
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        filesChanged: [
+          {
+            filename: "kubernetes/deployment.yaml",
+            originalCode: "containers:\n  - name: db-exman\n    env:\n      - name: JAVA_OPTS\n        value: \"-Xms512m\"",
+            modifiedCode: "containers:\n  - name: db-exman\n    env:\n      - name: JAVA_OPTS\n        value: \"-Xms1g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=100\"",
+            additions: 3,
+            deletions: 2
+          }
+        ]
+      };
+    } else {
+      // Default fallback
+      newRun.overallHealthScore = 30;
+      newRun.overallStatus = "CRITICAL";
+      newRun.executiveSummary = "The application is experiencing a critical validation or connection outage.";
+      newRun.issues = [
+        { id: "iss-1", title: "Endpoint Outage", severity: "high", endpoint: "/", description: "Timeout", possibleCause: "Unknown configuration error" }
+      ];
+      newRun.remediations = [
+        { title: "Restart core services", service: "K8s-Cluster", command: "kubectl rollout restart deployment", explanation: "Restart to flush stuck worker processes", riskClassification: "GREEN" }
+      ];
+      newRun.agentDialogues = [
+        { id: "msg-1", agentId: "alice", agentName: "Alice (SRE Recon)", avatar: "Alice", role: "SRE", content: "A general service timeout has been detected. Recommending core cluster restart.", step: "investigate", timestamp: new Date().toISOString() }
+      ];
+      newRun.pullRequest = null;
+    }
   }
 
   checkHistory.unshift(newRun);
@@ -651,6 +1776,132 @@ app.post("/api/pull-requests/:runId/status", async (req, res) => {
   }
   
   res.json({ success: true, pullRequest: run.pullRequest });
+});
+
+// ==================== REGOPS USERS PERSISTENCE DATABASE ====================
+const USERS_DB_FILE = path.join(process.cwd(), "db_users.json");
+
+interface DBUser {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string;
+  password?: string;
+  createdAt: string;
+}
+
+const DEFAULT_USERS: DBUser[] = [
+  { id: 'DB-REGOPS-928', name: 'Sarah Jenkins', role: 'Senior RegOps Analyst (IAM & Compliance)', avatar: 'SJ', password: 'db-key-signature', createdAt: new Date().toISOString() },
+  { id: 'DB-SRE-104', name: 'Marcus Vance', role: 'Principal SRE (Infrastructure)', avatar: 'MV', password: 'db-key-signature', createdAt: new Date().toISOString() },
+  { id: 'DB-RISK-712', name: 'Alok Mehta', role: 'Compliance & Risk Officer', avatar: 'AM', password: 'db-key-signature', createdAt: new Date().toISOString() }
+];
+
+function loadUsers(): DBUser[] {
+  try {
+    if (fs.existsSync(USERS_DB_FILE)) {
+      const data = fs.readFileSync(USERS_DB_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error loading users database:", err);
+  }
+  // Fallback to default users and save them
+  saveUsers(DEFAULT_USERS);
+  return DEFAULT_USERS;
+}
+
+function saveUsers(users: DBUser[]): void {
+  try {
+    fs.writeFileSync(USERS_DB_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Error saving users database:", err);
+  }
+}
+
+// Ensure database file is generated immediately on startup
+loadUsers();
+
+// Endpoint to list all users (excluding passwords)
+app.get("/api/auth/users", (req, res) => {
+  const users = loadUsers();
+  const safeUsers = users.map(({ password, ...u }) => u);
+  res.json(safeUsers);
+});
+
+// Endpoint for User Sign-Up
+app.post("/api/auth/signup", (req, res) => {
+  const { name, role, password, operatorId } = req.body;
+  if (!name || !role || !password) {
+    return res.status(400).json({ error: "Name, security role, and DB-Key signature password are required." });
+  }
+
+  const users = loadUsers();
+  
+  // Check if user already exists by name
+  const nameExists = users.some(u => u.name.toLowerCase() === name.trim().toLowerCase());
+  if (nameExists) {
+    return res.status(400).json({ error: "An operator with this name is already registered." });
+  }
+
+  // Generate unique operator ID if not provided, or check if provided one is unique
+  let assignedId = operatorId ? operatorId.trim().toUpperCase() : "";
+  if (assignedId) {
+    const idExists = users.some(u => u.id === assignedId);
+    if (idExists) {
+      return res.status(400).json({ error: "This Operator ID is already taken. Choose another or leave blank to auto-generate." });
+    }
+  } else {
+    // Generate unique ID
+    let attempts = 0;
+    while (!assignedId || users.some(u => u.id === assignedId)) {
+      assignedId = `DB-REGOPS-${Math.floor(100 + Math.random() * 900)}`;
+      attempts++;
+      if (attempts > 50) break;
+    }
+  }
+
+  const initials = name.trim().split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
+
+  const newUser: DBUser = {
+    id: assignedId,
+    name: name.trim(),
+    role,
+    avatar: initials,
+    password: password,
+    createdAt: new Date().toISOString()
+  };
+
+  users.push(newUser);
+  saveUsers(users);
+
+  const { password: _, ...safeUser } = newUser;
+  res.status(201).json({ success: true, user: safeUser });
+});
+
+// Endpoint for User Sign-In
+app.post("/api/auth/signin", (req, res) => {
+  const { nameOrId, password } = req.body;
+  if (!nameOrId || !password) {
+    return res.status(400).json({ error: "Please enter your Operator Name/ID and DB-Key Signature Password." });
+  }
+
+  const users = loadUsers();
+  const searchStr = nameOrId.trim().toLowerCase();
+  
+  const foundUser = users.find(u => 
+    u.name.toLowerCase() === searchStr || u.id.toLowerCase() === searchStr
+  );
+
+  if (!foundUser) {
+    return res.status(401).json({ error: "Authentication failed: Operator name or ID not found." });
+  }
+
+  if (foundUser.password !== password) {
+    return res.status(401).json({ error: "Authentication failed: Invalid security password/key signature." });
+  }
+
+  const { password: _, ...safeUser } = foundUser;
+  res.json({ success: true, user: safeUser });
 });
 
 // ==================== EXPRESS SERVER BOOT / VITE MIDDLEWARE ====================
