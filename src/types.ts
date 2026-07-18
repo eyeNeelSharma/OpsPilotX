@@ -59,7 +59,7 @@ export interface GCPRemediationStep {
   riskClassification: 'GREEN' | 'AMBER' | 'RED';
 }
 
-// Geneos alert model for Deutsche Bank RegOps monitoring
+// Geneos alert model for RegOps monitoring
 export interface GeneosAlert {
   id: string;
   systemName: string;

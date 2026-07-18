@@ -699,7 +699,7 @@ export default function App() {
               <Terminal className="w-8 h-8 text-blue-400 animate-pulse" />
             </div>
             <div className="space-y-1">
-              <span className="font-mono text-[10px] font-bold tracking-widest text-blue-500 uppercase">Deutsche Bank • RegOps Hub</span>
+              <span className="font-mono text-[10px] font-bold tracking-widest text-blue-500 uppercase">Enterprise • RegOps Hub</span>
               <h2 className="text-xl font-bold text-white uppercase tracking-wider">OpsPilot X Portal</h2>
             </div>
             <p className="text-xs text-slate-400 font-sans">
@@ -934,7 +934,7 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold tracking-widest text-slate-500 uppercase">Deutsche Bank</span>
+                <span className="font-mono text-xs font-bold tracking-widest text-slate-500 uppercase">Enterprise</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
                 <h1 className="text-sm font-bold tracking-wider text-white uppercase">OpsPilot X</h1>
                 <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded uppercase">RegOps AI Suite</span>
@@ -1201,7 +1201,7 @@ export default function App() {
                     <Activity className="w-4.5 h-4.5 text-rose-500" />
                     <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Active Geneos Alerts Grid</h2>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">Deutsche Bank Production Environment</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Production Environment</span>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1661,7 +1661,7 @@ export default function App() {
 
       <footer className="mt-16 border-t border-slate-900 py-8 text-center text-[10.5px] text-slate-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span>Deutsche Bank • Production Support Operations Portal</span>
+          <span>Enterprise • Production Support Operations Portal</span>
           <span className="text-[11px] text-slate-600">OpsPilot X Agent Engine • Antigravity System Stack</span>
         </div>
       </footer>

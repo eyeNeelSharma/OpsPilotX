@@ -1,6 +1,6 @@
 {
   "name": "Remix: GCP Sanity Checker Agent",
-  "description": "OpsPilot X: An autonomous AI Production Support Engineer built for Deutsche Bank RegOps. Features Geneos alerts integration, a 10-step incident lifecycle, collaborative multi-agent investigations, and automated developer code PR creations.",
+  "description": "OpsPilot X: An autonomous AI Production Support Engineer built for RegOps. Features Geneos alerts integration, a 10-step incident lifecycle, collaborative multi-agent investigations, and automated developer code PR creations.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

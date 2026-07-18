@@ -41,13 +41,13 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// In-Memory Database for demonstration, themed for Deutsche Bank RegOps
+// In-Memory Database for demonstration, themed for RegOps
 let applications: ApplicationProfile[] = [
   {
     id: "mifid-rates",
     name: "Mifid Rates",
     url: process.env.APP_URL || "http://127.0.0.1:3000",
-    description: "Deutsche Bank MiFID II Interest Rates and Bond trade reporting engine. Submits daily trades to ESMA and handles ACK/NACK responses.",
+    description: "MiFID II Interest Rates and Bond trade reporting engine. Submits daily trades to ESMA and handles ACK/NACK responses.",
     createdAt: new Date().toISOString(),
     deploymentPlatform: "GKE",
     checkEndpoints: [
@@ -742,6 +742,25 @@ Ping Latency: 22ms (0% Packet Loss - Connection Healthy)`;
 // ==================== REGOPS SIMULATION ROUTE ENDPOINTS ====================
 // Dynamically connected to the persistent MCP resources database cluster
 
+app.get("/api/demo/regops/state", (req, res) => {
+  const db = loadMcpDb();
+  res.status(200).json({
+    queues: db.queues["MIFID.RATES.IN"],
+    locks: db.locks["MIFID_CREDIT_TRADES"],
+    validation: db.validation["esma_regulatory"]
+  });
+});
+
+app.get("/api/demo/regops/credit/locks", (req, res) => {
+  const db = loadMcpDb();
+  res.status(200).json(db.locks["MIFID_CREDIT_TRADES"]);
+});
+
+app.get("/api/demo/regops/compliance/validation", (req, res) => {
+  const db = loadMcpDb();
+  res.status(200).json(db.validation["esma_regulatory"]);
+});
+
 app.get("/api/demo/regops/rates/queue", (req, res) => {
   const db = loadMcpDb();
   const q = db.queues["MIFID.RATES.IN"];
@@ -1233,411 +1252,20 @@ Output valid JSON only.`;
     newRun.pullRequest = aiData.pullRequest ? { ...aiData.pullRequest, status: 'DRAFT', createdAt: new Date().toISOString() } : null;
 
   } catch (error) {
-    console.warn("Gemini AI generation failed (using high-fidelity state fallback):", error);
+    console.error("Gemini AI generation failed:", error);
+    const errMessage = error instanceof Error ? error.message : String(error);
+    const isQuotaExceeded = errMessage.toLowerCase().includes("quota") || 
+                            errMessage.toLowerCase().includes("429") || 
+                            errMessage.toLowerCase().includes("exhausted") || 
+                            errMessage.toLowerCase().includes("limit exceeded");
     
-    // High-fidelity state fallbacks to make the app robust even if Gemini API quota is exhausted
-    if (geneosAlertId === "alert_001") {
-      newRun.overallHealthScore = 35;
-      newRun.overallStatus = "CRITICAL";
-      newRun.executiveSummary = "Outbound rates queue MIFID.RATES.IN depth is at 78,401 messages, exceeding the 50,000 threshold. The socket state of the outbound transmission gateway 'rates-tx-prod-918' is STALE due to un-acknowledged heartbeat frames. A regulatory socket reset via the MCP server is recommended to restore normal rates streaming.";
-      newRun.issues = [
-        {
-          id: "iss-rates-socket",
-          title: "IBM MQ 'MIFID.RATES.IN' Queue Depth Exceeded",
-          severity: "high",
-          endpoint: "/api/demo/regops/rates/queue",
-          description: "Outbound rate streaming queue has accumulated 78,401 messages. Connection socket 'rates-tx-prod-918' is unresponsive.",
-          possibleCause: "Stale TCP socket handles on the rates transmission service preventing message acknowledgement."
-        }
-      ];
-      newRun.remediations = [
-        {
-          title: "Reset Outbound Regulatory Socket",
-          service: "MIFID-RATES-GATEWAY",
-          command: "reset_socket rates-tx-prod-918 MIFID.RATES.IN",
-          explanation: "Forces immediate recycle of the TCP socket handles for rates-tx-prod-918 to clear stalled rate streaming loops.",
-          riskClassification: "GREEN"
-        }
-      ];
-      newRun.agentDialogues = [
-        {
-          id: "msg-1",
-          agentId: "alice",
-          agentName: "Alice (SRE Recon)",
-          avatar: "Alice",
-          role: "Site Reliability Engineer",
-          content: "Alert alert_001 detected. I've scanned the MIFID.RATES.IN queue metrics. The queue depth has backed up to 78,401 messages, and the connection state is shown as STALE. This indicates packet acknowledgements are blocked.",
-          step: "investigate",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-2",
-          agentId: "bob",
-          agentName: "Bob (Database)",
-          avatar: "Bob",
-          role: "Core DBA",
-          content: "No transactional locks are active on the database for this rates queue, so this is purely a network transport/socket failure. Sybase database is fully operational.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-3",
-          agentId: "charlie",
-          agentName: "Charlie (Code Arc)",
-          avatar: "Charlie",
-          role: "Tech Lead",
-          content: "I reviewed our recent deployment logs. The rates-gateway service was updated yesterday, but keep-alive timeouts weren't tuned correctly, causing socket leakage under high rate-update volatility.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-4",
-          agentId: "david",
-          agentName: "David (RegOps)",
-          avatar: "David",
-          role: "Compliance Officer",
-          content: "This backlog violates ESMA MiFID II RTS 25 time-accuracy requirements. We must clear the queue immediately. Alice, please initiate a Reset Outbound Regulatory Socket call via our MCP server. I am also drafting a patch to stabilize keep-alive intervals.",
-          step: "remediation",
-          timestamp: new Date().toISOString()
-        }
-      ];
-      newRun.pullRequest = {
-        id: "pr-rates-socket-timeout",
-        title: "Fix TCP keep-alive timeouts and socket leak in Rates Gateway",
-        description: "Resolves stale sockets under high traffic volatility by lowering default socket idle timeout and enabling tcpKeepAlive.",
-        repository: targetApp.githubRepository || "mifid-rates-gateway",
-        branch: "fix-rates-leak",
-        targetBranch: "main",
-        status: "DRAFT",
-        createdAt: new Date().toISOString(),
-        filesChanged: [
-          {
-            filename: "src/gateway/socket_manager.ts",
-            originalCode: "const socket = new net.Socket();\nsocket.setTimeout(0);\nsocket.connect(PORT, HOST);",
-            modifiedCode: "const socket = new net.Socket();\nsocket.setTimeout(30000);\nsocket.setKeepAlive(true, 5000);\nsocket.connect(PORT, HOST);",
-            additions: 2,
-            deletions: 1
-          }
-        ]
-      };
-    } else if (geneosAlertId === "alert_002") {
-      newRun.overallHealthScore = 20;
-      newRun.overallStatus = "CRITICAL";
-      newRun.executiveSummary = "Sybase transaction table lock detected on 'MIFID_CREDIT_TRADES' by SPID 892. Lock duration is 320 seconds, blocking 1,402 credit trades. Recommended action: Terminate SPID 892 via high-privilege MCP tool kill_blocking_spid.";
-      newRun.issues = [
-        {
-          id: "iss-sybase-lock",
-          title: "Sybase Exclusive Table Lock Detected",
-          severity: "high",
-          endpoint: "/api/demo/regops/credit/locks",
-          description: "Exclusive transaction lock on table 'MIFID_CREDIT_TRADES' has been held for over 5 minutes by system process SPID 892.",
-          "possibleCause": "An un-optimized manual batch execution script left an uncommitted transactional block open."
-        }
-      ];
-      newRun.remediations = [
-        {
-          title: "Terminate Blocking Database Session",
-          service: "SYBASE-CLUSTER-PRIMARY",
-          command: "kill_spid 892",
-          explanation: "Executes a kill command on SPID 892 to force rollback of the idle lock holder and release exclusive table reservations.",
-          riskClassification: "AMBER"
-        }
-      ];
-      newRun.agentDialogues = [
-        {
-          id: "msg-1",
-          agentId: "alice",
-          agentName: "Alice (SRE Recon)",
-          avatar: "Alice",
-          role: "Site Reliability Engineer",
-          content: "Scanning credit transactions... Yes, I see a full deadlock state. No rows are being inserted into the transactional ledger. A check on activelocks confirms table MIFID_CREDIT_TRADES has an exclusive lock.",
-          step: "investigate",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-2",
-          agentId: "bob",
-          agentName: "Bob (Database)",
-          avatar: "Bob",
-          role: "Core DBA",
-          content: "I ran diagnostics on the locking table. The lock is held by SPID 892, which corresponds to a manual batch backfill query launched 6 minutes ago. It's completely idle but has not closed its transaction.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-3",
-          agentId: "charlie",
-          agentName: "Charlie (Code Arc)",
-          avatar: "Charlie",
-          role: "Tech Lead",
-          content: "The batch code script does not use auto-commit or explicit transaction timeouts, leaving it vulnerable to network blips during bulk load operations.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-4",
-          agentId: "david",
-          agentName: "David (RegOps)",
-          avatar: "David",
-          role: "Compliance Officer",
-          content: "We have over 1,400 trade files backed up in memory. If we don't persist them within the next 10 minutes, we will exceed the regulatory compliance deadline for transaction reporting. Bob, please kill SPID 892 now.",
-          step: "remediation",
-          timestamp: new Date().toISOString()
-        }
-      ];
-      newRun.pullRequest = {
-        id: "pr-db-lock-timeout",
-        title: "Add strict session query timeouts and transactional commit guards",
-        description: "Enforces strict query timeout limits on the database connection pool to automatically rollback stale batch operations.",
-        repository: targetApp.githubRepository || "mifid-credit-db",
-        branch: "fix-db-lock-timeout",
-        status: "DRAFT",
-        createdAt: new Date().toISOString(),
-        filesChanged: [
-          {
-            filename: "src/database/pool.ts",
-            originalCode: "const pool = new ConnectionPool({\n  max: 10,\n  idleTimeoutMillis: 30000\n});",
-            modifiedCode: "const pool = new ConnectionPool({\n  max: 10,\n  idleTimeoutMillis: 30000,\n  connectionTimeoutMillis: 5000,\n  statementTimeoutMillis: 15000\n});",
-            additions: 2,
-            deletions: 0
-          }
-        ]
-      };
-    } else if (geneosAlertId === "alert_003") {
-      newRun.overallHealthScore = 15;
-      newRun.overallStatus = "CRITICAL";
-      newRun.executiveSummary = "Compliance validation rejection rate for ESMA Trade Repository is 12.4%, violating the <1.0% threshold. Root cause is a missing or invalid CFI code validation bug introduced in upstream capture engine v14.2. Recommended remediation: Redeploy Upstream Release v14.1 (Rollback).";
-      newRun.issues = [
-        {
-          id: "iss-esma-rejection",
-          title: "ESMA Repository Validation Failure (12.4% NACK Rate)",
-          severity: "high",
-          endpoint: "/api/demo/regops/compliance/validation",
-          description: "ESMA repository returns high NACK rates (ERR-VAL-509: Missing or Invalid CFI Code) for commodity swap trades.",
-          "possibleCause": "A schema validation bug in the newly deployed trade engine release v14.2."
-        }
-      ];
-      newRun.remediations = [
-        {
-          title: "Redeploy Stable Upstream Release v14.1",
-          service: "UPSTREAM-TRADE-CAPTURE",
-          command: "redeploy_v14_1 upstream-trade-capture-engine",
-          explanation: "Rolls back the upstream trade delivery engine to the last known stable version v14.1 to restore valid CFI schema compliance.",
-          riskClassification: "RED"
-        }
-      ];
-      newRun.agentDialogues = [
-        {
-          id: "msg-1",
-          agentId: "alice",
-          agentName: "Alice (SRE Recon)",
-          avatar: "Alice",
-          role: "Site Reliability Engineer",
-          content: "ESMA feedback logs retrieved. Validation rejections have spiked to 12.4%. Almost all rejections list ERROR ERR-VAL-509 for missing/invalid CFI code maps.",
-          step: "investigate",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-2",
-          agentId: "charlie",
-          agentName: "Charlie (Code Arc)",
-          avatar: "Charlie",
-          role: "Tech Lead",
-          content: "I tracked this to the v14.2 release deployed an hour ago. The parser structure changed, and the CFI code mapper was completely omitted for commodity derivative swap contracts.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-3",
-          agentId: "david",
-          agentName: "David (RegOps)",
-          avatar: "David",
-          role: "Compliance Officer",
-          content: "Sending NACKed trade reports is highly illegal under ESMA RTS rules. We must rollback immediately to v14.1 while Charlie maps the fix.",
-          step: "remediation",
-          timestamp: new Date().toISOString()
-        }
-      ];
-      newRun.pullRequest = {
-        id: "pr-esma-cfi-fix",
-        title: "Fix CFI Code default mappings for Commodity Swap compliance",
-        description: "Restores correct default ISO 10962 CFI code format ('SRXXXX') on commodity swap validation rules.",
-        repository: targetApp.githubRepository || "upstream-trade-capture-engine",
-        branch: "fix-cfi-compliance",
-        status: "DRAFT",
-        createdAt: new Date().toISOString(),
-        filesChanged: [
-          {
-            filename: "src/validation/cfi_rules.ts",
-            originalCode: "if (!trade.cfiCode) {\n  throw new ValidationError('CFI code is required');\n}",
-            modifiedCode: "if (!trade.cfiCode) {\n  trade.cfiCode = trade.type === 'COMMODITY_SWAP' ? 'SRCXXX' : 'XXXXXX';\n}",
-            additions: 3,
-            deletions: 2
-          }
-        ]
-      };
-    } else if (geneosAlertId === "alert_004") {
-      newRun.overallHealthScore = 55;
-      newRun.overallStatus = "DEGRADED";
-      newRun.executiveSummary = "ECB SFTP connection 'sftp.ecb.europa.eu' timed out. The transmission gateway is active but secure static routing tables on VLAN 124 are missing proper route entries. Injected static routing fixes via MCP are recommended.";
-      newRun.issues = [
-        {
-          id: "iss-ecb-sftp",
-          title: "ECB Gateway Timeout (504)",
-          severity: "medium",
-          endpoint: "/api/demo/regops/sftp/gateway",
-          description: "Secure file transfer gateway connection to 'sftp.ecb.europa.eu' is timing out on ports 22/990.",
-          "possibleCause": "VLAN 124 network configuration is missing static route descriptors to resolve the gateway DNS correctly."
-        }
-      ];
-      newRun.remediations = [
-        {
-          title: "Fix SFTP DNS Gateway Routes",
-          service: "SECURE-SFTP-GATEWAY",
-          command: "deploy_routes sftp.ecb.europa.eu 124",
-          explanation: "Injects correct static networking gateway parameters and DNS routes for ECB inside the secure VLAN 124 configuration.",
-          riskClassification: "GREEN"
-        }
-      ];
-      newRun.agentDialogues = [
-        {
-          id: "msg-1",
-          agentId: "alice",
-          agentName: "Alice (SRE Recon)",
-          avatar: "Alice",
-          role: "Site Reliability Engineer",
-          content: "The ECB transmission logs show connection timeout after 30 seconds. Handshakes are stalling at the TCP SYN stage, which points to a firewall or routing issue.",
-          step: "investigate",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-2",
-          agentId: "bob",
-          agentName: "Bob (Database)",
-          avatar: "Bob",
-          role: "Core DBA",
-          content: "SFTP server directory queries are not even reaching the destination, so this is definitely an isolated network routing block, not a filesystem or database issue.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-3",
-          agentId: "david",
-          agentName: "David (RegOps)",
-          avatar: "David",
-          role: "Compliance Officer",
-          content: "VLAN 124 was hardened yesterday. The static DNS entry resolving to sftp.ecb.europa.eu was cleared out from the routing table. Let's deploy route fixes through MCP tool to bind static maps.",
-          step: "remediation",
-          timestamp: new Date().toISOString()
-        }
-      ];
-      newRun.pullRequest = {
-        id: "pr-sftp-dns-routing",
-        title: "Update VLAN secure static routing and fallback DNS resolvers",
-        description: "Adds redundant SFTP gateway DNS endpoints to connection properties to avoid path resolution deadlocks.",
-        repository: targetApp.githubRepository || "sftp-regulatory-gateway",
-        branch: "fix-sftp-routing",
-        status: "DRAFT",
-        createdAt: new Date().toISOString(),
-        filesChanged: [
-          {
-            filename: "src/config/network.json",
-            originalCode: "{\n  \"gatewayHost\": \"sftp.ecb.europa.eu\",\n  \"connectionTimeout\": 10000\n}",
-            modifiedCode: "{\n  \"gatewayHost\": \"sftp.ecb.europa.eu\",\n  \"connectionTimeout\": 30000,\n  \"fallbackIp\": \"192.168.124.40\",\n  \"dnsResolvers\": [\"10.0.0.1\", \"1.1.1.1\"]\n}",
-            additions: 4,
-            deletions: 2
-          }
-        ]
-      };
-    } else if (geneosAlertId === "alert_006") {
-      newRun.overallHealthScore = 10;
-      newRun.overallStatus = "CRITICAL";
-      newRun.executiveSummary = "Exception Store DB driver has failed due to JVM Heap OutOfMemoryError (98.7% usage). Garbage collection cycles are consuming 94% of CPU, rendering the portal unresponsive. Recommended: Restart JVM Container db-exman via MCP.";
-      newRun.issues = [
-        {
-          id: "iss-jvm-oom",
-          title: "JVM Heap OutOfMemory in Exception Store DB",
-          severity: "high",
-          endpoint: "/api/demo/regops/jvm/heap",
-          description: "Exception Store DB service JVM Heap usage has reached 98.7%. Massive garbage collection pause loops are blocking incoming connections.",
-          "possibleCause": "Memory leak in the Exception Manager database driver under heavy peak loads."
-        }
-      ];
-      newRun.remediations = [
-        {
-          title: "Recycle JVM Container 'db-exman'",
-          service: "EXCEPTION-STORE-DB",
-          command: "restart_jvm db-exman",
-          explanation: "Forces a hard restart on the db-exman JVM container driver to release leaked memory allocations and restore normal GC percentiles.",
-          riskClassification: "AMBER"
-        }
-      ];
-      newRun.agentDialogues = [
-        {
-          id: "msg-1",
-          agentId: "alice",
-          agentName: "Alice (SRE Recon)",
-          avatar: "Alice",
-          role: "Site Reliability Engineer",
-          content: "The portal UI is completely locked. Reading the console output of db-exman reveals a continuous loop of OutOfMemoryError: Java heap space. SRE monitors show 98% heap usage.",
-          step: "investigate",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-2",
-          agentId: "charlie",
-          agentName: "Charlie (Code Arc)",
-          avatar: "Charlie",
-          role: "Tech Lead",
-          content: "Looking at the driver code, there's an infinite loop appending failed XML payloads into a static memory list cache instead of evicting them. This causes the heap exhaustion.",
-          step: "root_cause",
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: "msg-3",
-          agentId: "david",
-          agentName: "David (RegOps)",
-          avatar: "David",
-          role: "Compliance Officer",
-          content: "We must recycle the container immediately to clear memory. I will prepare a PR to tune the JVM garbage collector limits and fix the unbounded list.",
-          step: "remediation",
-          timestamp: new Date().toISOString()
-        }
-      ];
-      newRun.pullRequest = {
-        id: "pr-jvm-heap-tune",
-        title: "Optimize JVM Garbage Collection parameters and heap limits",
-        description: "Configures G1GC collector and sets explicit max heap ceiling limits (-Xmx4g) to prevent heap-exhaustion freezes.",
-        repository: targetApp.githubRepository || "db-exception-manager",
-        branch: "perf-jvm-tuning",
-        status: "DRAFT",
-        createdAt: new Date().toISOString(),
-        filesChanged: [
-          {
-            filename: "kubernetes/deployment.yaml",
-            originalCode: "containers:\n  - name: db-exman\n    env:\n      - name: JAVA_OPTS\n        value: \"-Xms512m\"",
-            modifiedCode: "containers:\n  - name: db-exman\n    env:\n      - name: JAVA_OPTS\n        value: \"-Xms1g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=100\"",
-            additions: 3,
-            deletions: 2
-          }
-        ]
-      };
-    } else {
-      // Default fallback
-      newRun.overallHealthScore = 30;
-      newRun.overallStatus = "CRITICAL";
-      newRun.executiveSummary = "The application is experiencing a critical validation or connection outage.";
-      newRun.issues = [
-        { id: "iss-1", title: "Endpoint Outage", severity: "high", endpoint: "/", description: "Timeout", possibleCause: "Unknown configuration error" }
-      ];
-      newRun.remediations = [
-        { title: "Restart core services", service: "K8s-Cluster", command: "kubectl rollout restart deployment", explanation: "Restart to flush stuck worker processes", riskClassification: "GREEN" }
-      ];
-      newRun.agentDialogues = [
-        { id: "msg-1", agentId: "alice", agentName: "Alice (SRE Recon)", avatar: "Alice", role: "SRE", content: "A general service timeout has been detected. Recommending core cluster restart.", step: "investigate", timestamp: new Date().toISOString() }
-      ];
-      newRun.pullRequest = null;
-    }
+    res.status(isQuotaExceeded ? 429 : 500).json({
+      error: isQuotaExceeded 
+        ? "Gemini AI Request Limit Exceeded (Quota Exhausted). Please verify your GEMINI_API_KEY in Settings > Secrets or wait and try again later."
+        : "Gemini AI Request Failed.",
+      details: errMessage
+    });
+    return;
   }
 
   checkHistory.unshift(newRun);
