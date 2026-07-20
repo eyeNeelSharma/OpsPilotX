@@ -23,7 +23,7 @@ export interface AgentLog {
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'success';
   message: string;
-  step?: 'recon' | 'ping' | 'content' | 'api' | 'diagnosis' | 'remediation' | 'verification' | 'pr_create';
+  step?: 'recon' | 'ping' | 'content' | 'api' | 'diagnosis' | 'remediation' | 'verification' | 'pr_create' | 'infra' | 'changes' | 'historical';
 }
 
 export interface EndpointCheckResult {
